@@ -22,21 +22,25 @@ if tf.__version__ >= '2.0':
 
 class Reconstructor():
     def __init__(self, params):
+        #Note that "self" is the same as using "this" in C++
         opt = TestOptions().parse(params)
         self.phase = opt.phase
+        #Check what this does, not sure
         self.face_mark_model = LargeModelInfer("assets/pretrained_models/large_base_net.pth", device='cuda')
 
         device = torch.device(0)
         torch.cuda.set_device(device)
-        self.model = create_model(opt)
-        self.model.setup(opt)
+        self.model = create_model(opt) #defined in __init__.py, it creates model from facerecon_model.py (pretrained)
+        self.model.setup(opt)#defined in base_model.py (parent of facerecon), either does training or selects epoch
         self.model.device = device
         self.model.parallelize()
         self.model.eval()
         self.model.set_render(opt, image_res=512)
 
+        #Face recognition library used to get the outlines of jaw, eyes, nose, and mouth
         self.lm_sess = face_alignment.FaceAlignment(face_alignment.LandmarksType._3D, flip_input=False)
 
+        #tf is tensorflow
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.per_process_gpu_memory_fraction = 0.2
         config.gpu_options.allow_growth = True
@@ -122,6 +126,7 @@ class Reconstructor():
             img_name = 'face-reconstruction_' + timestamp
 
         # img_ori = img.copy()
+        #if the image is bigger than 2000 * 2000 pixels, resize it to be 1500
         if img.shape[0] > 2000 or img.shape[1] > 2000:
             img, _ = resize_on_long_side(img, 1500)
 
@@ -129,8 +134,10 @@ class Reconstructor():
         #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
         #     cv2.imwrite(img_path, img)
 
+        #Returns a tuple of two lists of facial landmarks (nose, eyes, chin, mouth, etc.)
         box, results = self.face_mark_model.infer(img)
 
+        #In the case the face could not be detected
         if results is None or np.array(results).shape[0] == 0:
             return {}
 
@@ -139,9 +146,10 @@ class Reconstructor():
         # print('-' * 50, 'fat face', time.time() - t1)
         fatbgr = None
 
+        #Gets 5 specific landmarks from the results of the facial recognition
         landmarks = []
         results = results[0]
-        for idx in [74, 83, 54, 84, 90]:
+        for idx in [74, 83, 54, 84, 90]: #Assuming they are mouth, chin/jaw, nose, eyebrows, eyes
             landmarks.append([results[idx][0], results[idx][1]])
         landmarks = np.array(landmarks)
 
@@ -160,8 +168,10 @@ class Reconstructor():
             'img_name': img_name,
             'face_mask': mask,
         }
+        #Sets input for model so that the inference can be run 
         self.model.set_input_base(data)  # unpack data from data loader
 
+        #Runs function from facerecon_model.py
         output = self.model.predict_results_base()  # run inference
 
         if out_dir is not None:
@@ -235,7 +245,7 @@ class Reconstructor():
 
     def predict(self, img, visualize=False, out_dir=None, save_name=''):
         with torch.no_grad():
-            output = self.predict_base(img)
+            output = self.predict_base(img) #function is above, gets result from Deep3DFace
 
             output['input_img_for_tex'] = self.get_img_for_texture(output['input_img'])
 
