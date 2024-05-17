@@ -97,6 +97,7 @@ class FaceReconModel(BaseModel):
             net_recon=opt.net_recon, use_last_fc=opt.use_last_fc, init_path=None
         )
 
+        #This is where we set the 3DMM model from bfm.py
         self.facemodel_front = ParametricFaceModel(
             bfm_folder=opt.bfm_folder, camera_distance=opt.camera_d, focal=opt.focal, center=opt.center,
             is_train=True, default_name='BFM_model_front.mat'

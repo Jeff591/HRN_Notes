@@ -10,7 +10,7 @@ def run_hrn(args):
     params = [
         '--checkpoints_dir', args.checkpoints_dir, #Where to store models
         '--name', args.name, #name of expirement
-        '--epoch', args.epoch,#which pass of the training dataset through the algorithm (or model), to use
+        '--epoch', args.epoch, #which pass of the training dataset through the algorithm (or model), to use
     ]
 
     #Reconstructor class is in hrn.py

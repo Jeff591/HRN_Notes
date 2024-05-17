@@ -22,14 +22,18 @@ if tf.__version__ >= '2.0':
 
 class Reconstructor():
     def __init__(self, params):
-        #Note that "self" is the same as using "this" in C++
+        #Configure settings for reconstruction process
         opt = TestOptions().parse(params)
+        #phase is the current train or test
         self.phase = opt.phase
-        #Check what this does, not sure
+        #Intialize the landmark detection model using a pre-trained model at the path
         self.face_mark_model = LargeModelInfer("assets/pretrained_models/large_base_net.pth", device='cuda')
 
+        #Set up PyTorch Environment to use GPU device 0
         device = torch.device(0)
         torch.cuda.set_device(device)
+
+        #Set up main model
         self.model = create_model(opt) #defined in __init__.py, it creates model from facerecon_model.py (pretrained)
         self.model.setup(opt)#defined in base_model.py (parent of facerecon), either does training or selects epoch
         self.model.device = device
@@ -40,7 +44,7 @@ class Reconstructor():
         #Face recognition library used to get the outlines of jaw, eyes, nose, and mouth
         self.lm_sess = face_alignment.FaceAlignment(face_alignment.LandmarksType._3D, flip_input=False)
 
-        #tf is tensorflow
+        #Setup TensorFlow session for face segmentation
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.per_process_gpu_memory_fraction = 0.2
         config.gpu_options.allow_growth = True
@@ -61,7 +65,11 @@ class Reconstructor():
         # to RGB
         im = PIL.Image.fromarray(img[..., ::-1])
         W, H = im.size
+
+        #lm (landmarks) are adjusted for image height by flipping y-coords
         lm[:, -1] = H - 1 - lm[:, -1]
+
+        #align the image and landmarks with standard set of 3D facial landmarks and scale
         _, im_lr, lm_lr, _ = align_img(im, lm, lm3d_std)
         _, im_hd, lm_hd, _ = align_img(im, lm, lm3d_std, target_size=image_res, rescale_factor=102. * image_res / 224)
         if img_fat is not None:
@@ -69,6 +77,7 @@ class Reconstructor():
             im_fat = PIL.Image.fromarray(img_fat[..., ::-1])
             _, im_hd, _, _ = align_img(im_fat, lm, lm3d_std, target_size=image_res, rescale_factor=102. * image_res / 224)
 
+        #Generate low resolution mask for image using face segmentation
         mask_lr = self.face_sess.run(self.face_sess.graph.get_tensor_by_name('output_alpha:0'), feed_dict={'input_image:0': np.array(im_lr)})
 
         # im_hd = np.array(im_hd).astype(np.float32)
@@ -134,7 +143,8 @@ class Reconstructor():
         #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
         #     cv2.imwrite(img_path, img)
 
-        #Returns a tuple of two lists of facial landmarks (nose, eyes, chin, mouth, etc.)
+        #Returns a tuple of two lists, results is facial landmarks from retinaface (nose, eyes, chin, mouth, etc.)
+        #There is a total of 106 landmarks
         box, results = self.face_mark_model.infer(img)
 
         #In the case the face could not be detected
@@ -153,8 +163,12 @@ class Reconstructor():
             landmarks.append([results[idx][0], results[idx][1]])
         landmarks = np.array(landmarks)
 
+        #Uses face-alignment for cropping (reducing landmarks)
+        #Five points are the key areas that we want to focus down on.
         landmarks = self.prepare_data(img, self.lm_sess, five_points=landmarks)
 
+
+        #Get tensor representations of the image and facemask
         im_tensor, lm_tensor, im_hd_tensor, lm_hd_tensor, mask = self.read_data(img, landmarks, self.lm3d_std, image_res=512, img_fat=fatbgr)
         # M = estimate_norm(lm_tensor.numpy()[0], im_tensor.shape[2])
         # M_tensor = self.parse_label(M)[None, ...]
@@ -245,8 +259,10 @@ class Reconstructor():
 
     def predict(self, img, visualize=False, out_dir=None, save_name=''):
         with torch.no_grad():
-            output = self.predict_base(img) #function is above, gets result from Deep3DFace
+            #function is above, gets result from Deep3DFace
+            output = self.predict_base(img) 
 
+            #Get an image for texture pruposes
             output['input_img_for_tex'] = self.get_img_for_texture(output['input_img'])
 
             hrn_input = {

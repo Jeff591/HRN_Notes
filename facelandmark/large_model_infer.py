@@ -96,20 +96,20 @@ class LargeModelInfer:
     def infer(self, img_bgr):
         landmarks = []
 
-        # 1. 检测出人脸矩形框
-        # rgb_image = img_bgr[:,:,::-1]
         rgb_image = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        # boxes = self.detector.predict(rgb_image)
-        results = self.detector.predict_jsons(rgb_image)
-        # result_img = detector.draw(rgb_image, detect_results)
-        # cv2.imshow("detect result", result_img[...,::-1].astype(np.uint8))
 
+        #retinaface is used to detect faces in image
+        #results is a list containing about the detected face(s), including bounding box coords and confidence score
+        results = self.detector.predict_jsons(rgb_image)
+
+        #add all valid bounding boxes to a list after adjustment
         boxes = []
         for anno in results:
             if anno['score'] == -1:
                 break
             boxes.append({'x1': anno['bbox'][0], 'y1': anno['bbox'][1], 'x2': anno['bbox'][2], 'y2': anno['bbox'][3]})
 
+        #For each bounding box, extract the face region of the image
         for detect_result in boxes:
             x1 = detect_result["x1"]
             y1 = detect_result["y1"]
@@ -122,6 +122,7 @@ class LargeModelInfer:
             cx = (x2 + x1) / 2
             cy = (y2 + y1) / 2
 
+            #Enlarge boudning box by ratio
             sz = max(h, w) * ENLARGE_RATIO
 
             x1 = cx - sz / 2
@@ -145,20 +146,23 @@ class LargeModelInfer:
             crop_img = rgb_image[int(y1):int(y2), int(x1):int(x2)]
             if dx > 0 or dy > 0 or edx > 0 or edy > 0:
                 crop_img = cv2.copyMakeBorder(crop_img, int(dy), int(edy), int(dx), int(edx), cv2.BORDER_CONSTANT, value=(103.94, 116.78, 123.68))
+            
+            #Resize image to standardized size
             crop_img = cv2.resize(crop_img, (INPUT_SIZE, INPUT_SIZE))
-            # cv2.imshow("crop resize", crop_img.astype(np.uint8))
-            # cv2.waitKey()
 
+            #Detects 106 facial landmarks (first call)
             base_lmks = LargeBaseLmkInfer.infer_img(crop_img, self.large_base_lmks_model, self.device=="cuda")
 
+            #Detected landmarks are scaled back to the original image coords using inverse scale
             inv_scale = sz / INPUT_SIZE
 
+            #Scale back landmark to original coords
             affine_base_lmks = np.zeros((106, 2))
             for idx in range(106):
                 affine_base_lmks[idx][0] = base_lmks[0][idx * 2 + 0] * inv_scale + trans_x1
                 affine_base_lmks[idx][1] = base_lmks[0][idx * 2 + 1] * inv_scale + trans_y1
 
-            # 利用affine_base_lmks重新求取包围盒
+            #Use adjusted landmarks to recalculate bounding box
             x1 = np.min(affine_base_lmks[:, 0])
             y1 = np.min(affine_base_lmks[:, 1])
             x2 = np.max(affine_base_lmks[:, 0])
@@ -198,6 +202,7 @@ class LargeModelInfer:
             # cv2.imshow("crop resize", crop_img.astype(np.uint8))
             # cv2.waitKey()
 
+            #Second detection of facial landmarks after refinment of bounding box
             base_lmks = LargeBaseLmkInfer.infer_img(crop_img, self.large_base_lmks_model, self.device.lower()=="cuda")
 
             inv_scale = sz / INPUT_SIZE
@@ -207,6 +212,7 @@ class LargeModelInfer:
                 affine_base_lmks[idx][0] = base_lmks[0][idx * 2 + 0] * inv_scale + trans_x1
                 affine_base_lmks[idx][1] = base_lmks[0][idx * 2 + 1] * inv_scale + trans_y1
 
+            #final landmarks
             landmarks.append(affine_base_lmks)
 
         return boxes, landmarks
