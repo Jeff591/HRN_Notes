@@ -260,13 +260,14 @@ class FaceReconModel(BaseModel):
         with torch.no_grad():
             output_coeff = self.net_recon(self.input_img)
 
-        # 3DMM
+        # 3DMM values gathered from bfm.py
+        # 3D Vertices, Albedo Map, Color Map, Landmakrs, Vertices without transformation, position map
         face_vertex, face_albedo_map, face_color_map, landmark, face_vertex_noTrans, position_map = self.facemodel_front.compute_for_render(output_coeff)
 
-        # get texture map
+        # get texture map based on 3D vertices
         texture_map = self.facemodel_front.get_texture_map(face_vertex, self.input_img_hd)
 
-        # de-retouch
+        # de-retouch albedo map and texture map to get rid of artifacts
         texture_map_input_high = texture_map.permute(0, 3, 1, 2).detach()  # (1, 3, 256, 256)
         texture_map_input_high = (texture_map_input_high - 0.5) * 2
         de_retouched_face_albedo_map = self.de_retouching_module.run(face_albedo_map, texture_map_input_high)
@@ -275,7 +276,7 @@ class FaceReconModel(BaseModel):
         valid_mask = self.facemodel_front.get_texture_map(face_vertex, self.face_mask)  # (256, 256, 1)
         valid_mask = valid_mask.permute(0, 3, 1, 2).detach()  # (1, 1, 256, 256)
 
-        # render
+        # render to generate predicted face and mask from vertices and color map to get visual representation of face
         pred_mask, _, pred_face = self.renderer.render_uv_texture(face_vertex, self.facemodel_front.face_buf,
                                                                      self.bfm_UVs.clone(), face_color_map)
 

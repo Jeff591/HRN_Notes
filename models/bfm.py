@@ -434,32 +434,46 @@ class ParametricFaceModel:
         Parameters:
             coeffs          -- torch.tensor, size (B, 257)
         """
+
+        #If coefficients is a dictionary then use it directly
+        #if coefficients is a tensor, split into components to get a dictionary indicating id, exp, tex, angle, trans, and gamma
         if type(coeffs) == dict:
             coef_dict = coeffs
         elif type(coeffs) == torch.Tensor:
             coef_dict = self.split_coeff(coeffs)
 
+        #Compute 3D shape of face using identity and expression coefficients
         face_shape = self.compute_shape(coef_dict['id'], coef_dict['exp'])
 
+        #Calculate rotation matrix from angle coefficient
         rotation = self.compute_rotation(coef_dict['angle'])
 
+        #First apply rotation and trasnlation to face shape
+        #Then transform face shape into camera space
         face_shape_transformed = self.transform(face_shape, rotation, coef_dict['trans'])
         face_vertex = self.to_camera(face_shape_transformed.clone())
         face_vertex_noTrans = self.to_camera(face_shape.clone())
         
+        #Project 3D vertices into the 2D image plane
+        #Extract 2D landmarks from the projected 2D vertices
         face_proj = self.to_image(face_vertex)
         landmark = self.get_landmarks(face_proj)
 
+        #Computer normals of the face shape, the rotate normals via rotation matrix
         face_norm = self.compute_norm(face_shape)
         face_norm_roted = face_norm @ rotation
 
-        # face_texture = self.compute_albedo(coef_dict['tex'])
+        #Compute albedo map using texture coefficients and interpolate it to the UV map size
         face_albedo_map = self.compute_albedo_map(coef_dict['tex'])  # (1, 512, 512, 3)
         face_albedo_map = face_albedo_map.permute(0, 3, 1, 2)
         face_albedo_map = torch.nn.functional.interpolate(face_albedo_map, [self.render.uv_size, self.render.uv_size], mode='bilinear')
+        
+        #Converts the rotate normals to UV coordinates
+        #Use albedo map, rotate normals in UV sace, and lighting coefficients, to get final color map
         face_norm_roted_uv = self.render.world2uv(face_norm_roted)
         face_color_map = self.compute_color_map(face_albedo_map, face_norm_roted_uv, coef_dict['gamma'])
 
+        #Converts face shape to UV coords to generate position map
         position_map = self.render.world2uv(face_shape)
 
         return face_vertex, face_albedo_map, face_color_map, landmark, face_vertex_noTrans, position_map
